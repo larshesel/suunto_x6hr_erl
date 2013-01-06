@@ -1,6 +1,9 @@
 -module(suunto).
 -export([start/1, stop/0, init/1]).
--export([write/1]).
+-export([start/0, write/1, write/3, get/1]).
+
+start() ->
+    start("./suunto_port").
 
 start(ExtPrg) ->
     spawn(?MODULE, init, [ExtPrg]).
@@ -8,15 +11,25 @@ start(ExtPrg) ->
 stop() ->
     complex ! stop.
 
+get(hist) ->
+    write(16#48, 16#0d, 16#12);
+get(hiking_logs) ->
+    write(16#b4, 16#0f, 16#14).
+
+%% [5, 0, 3, AddrLoByte, AddrHiByte, Len, CheckSum (AddrLoByte^AddrHiByte^Len) ]
+write(AddrLo, AddrHi, Len) ->
+    write(<<5, 0, 3, AddrLo, AddrHi, Len, (AddrLo bxor AddrHi bxor Len)>>).
+
 write(X) ->
+    io:format("writing command: ~p~n", [X]),
     call_port({write, X}).
 
 
 call_port({write, Msg}) ->
     complex ! {call, self(), Msg},
-    io:format("call port~n", []),
     receive
 	{response, Result} ->
+	    io:format("got response: ~p~n", [Result]),
 	    Result
     end.
 
@@ -42,5 +55,6 @@ loop(Port) ->
 		    exit(normal)
 	    end;
 	{'EXIT', _Port, _Reason} ->
+	    io:format("port terminated\n", []),
 	    exit(port_terminated)
     end.
