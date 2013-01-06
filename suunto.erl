@@ -12,7 +12,13 @@ stop() ->
     complex ! stop.
 
 get(hist) ->
-    write(16#48, 16#0d, 16#12);
+    <<5, 0,21,72,13,18,
+      Year, Month, Day,
+      HighPoint:16/little,
+      Ascent:32/little,
+      Descent:32/little,
+      _Rest/binary>> = write(16#48, 16#0d, 16#12),
+    [{date, Year, Month, Day},{highpoint, HighPoint},{ascent, Ascent}, {descent, Descent}];
 get(hiking_logs) ->
     write(16#b4, 16#0f, 16#14).
 
