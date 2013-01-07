@@ -1,6 +1,7 @@
 -module(suunto).
 -export([start/1, stop/0, init/1]).
 -export([start/0, write/1, write/3, get/1]).
+-export([verify_check_sum/1]).
 
 start() ->
     start("./suunto_port").
@@ -20,7 +21,10 @@ get(hist) ->
       _Rest/binary>> = write(16#48, 16#0d, 16#12),
     [{date, Year, Month, Day},{highpoint, HighPoint},{ascent, Ascent}, {descent, Descent}];
 get(hiking_logs) ->
-    write(16#b4, 16#0f, 16#14).
+    write(16#b4, 16#0f, 16#14);
+get(chrono_logs) ->
+    write(16#c9, 16#19, 16#19).
+
 
 %% [5, 0, 3, AddrLoByte, AddrHiByte, Len, CheckSum (AddrLoByte^AddrHiByte^Len) ]
 write(AddrLo, AddrHi, Len) ->
@@ -28,7 +32,25 @@ write(AddrLo, AddrHi, Len) ->
 
 write(X) ->
     io:format("writing command: ~p~n", [X]),
-    call_port({write, X}).
+    verify_check_sum(call_port({write, X})).
+
+verify_check_sum(<<_Pre:3/binary, Rest/binary>>) ->
+    DataSize =  byte_size(Rest) - 1,
+    <<Data:DataSize/binary, CheckSum:8>> = Rest,
+    case calc_sum(Data, 0, CheckSum) of
+	ok ->
+	    {ok, Data};
+	_ -> {error, checksum_not_correct}
+    end.
+
+
+calc_sum(<<H:8, T/binary>>, Acc, CheckSum) ->
+    calc_sum(T, Acc bxor H, CheckSum);
+calc_sum(<<>>, CheckSum, CheckSum) ->
+    ok.
+
+
+
 
 
 call_port({write, Msg}) ->
