@@ -1,6 +1,6 @@
 -module(suunto).
 -export([start/1, stop/0, init/2]).
--export([start/0, write/1, write/3, get/1, loop/1]).
+-export([start/0, write/1, write/3, get/1, loop/1, parse/1]).
 -export([verify_check_sum/1]).
 
 start() ->
@@ -28,8 +28,44 @@ get(hiking_logs) ->
 get(chrono_logs) ->
     write(16#c9, 16#19, 16#19);
 get(hiking_log1) ->
-    write(16#c8, 16#0f, 16#30).
+    parse(write(16#c8, 16#0f, 16#30)).
 
+parse(<<200, 15, 48, 
+	_WhatIsthis:8,
+	StartRaw:5/binary, %% 12,10,1,17,33
+	Interval:8, %% 10
+	HrData:8, %% 0
+	TotalAscent:16/big, %% 0,110
+	TotalDescent:16/big, %% 0,109
+	_Gap:8, %% 0
+	Laps:8, %% 1
+	DurationHours:8,
+	DurationMins:8,
+	DurationSecs:8,
+	DurationMS:8,
+	_WhatIsThis:4/binary,
+	HighestPointAlt:16/big,
+	HighestTimeRaw:4/binary,
+	LowestPointAlt:16/big,
+	LowestTimeRaw:4/binary,
+	_Rest/binary>>) ->
+     [{start_time, parse_timestamp(StartRaw)},
+      {interval, Interval},
+      {hr_data, HrData},
+      {total_ascent, TotalAscent},
+      {total_descent, TotalDescent},
+      {laps, Laps},
+      {duration, {DurationHours, DurationMins, DurationSecs, DurationMS}},
+      {highest_time, parse_timestamp(HighestTimeRaw)},
+      {highest_point_altitude, HighestPointAlt},
+      {lowest_time, parse_timestamp(LowestTimeRaw)},
+      {lowest_point_altitude, LowestPointAlt}].
+
+
+parse_timestamp(<<Year:8, RestDate:4/binary>>) ->
+    [{year, Year} |  parse_timestamp(RestDate)];
+parse_timestamp(<<Month:8, Day:8, Hour:8, Min:8>>) ->
+    [{month, Month}, {day, Day}, {hour, Hour}, {min, Min}].
 
 %% [5, 0, 3, AddrLoByte, AddrHiByte, Len, CheckSum (AddrLoByte^AddrHiByte^Len) ]
 write(AddrLo, AddrHi, Len) ->
