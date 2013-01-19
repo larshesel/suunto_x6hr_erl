@@ -1,6 +1,6 @@
 -module(suunto).
 -export([start/1, stop/0, init/2]).
--export([start/0, write/1, write/3, get/1]).
+-export([start/0, write/1, write/3, get/1, loop/1]).
 -export([verify_check_sum/1]).
 
 start() ->
@@ -16,12 +16,12 @@ stop() ->
     complex ! stop.
 
 get(hist) ->
-    <<5, 0,21,72,13,18,
-      Year, Month, Day,
-      HighPoint:16/little,
-      Ascent:32/little,
-      Descent:32/little,
-      _Rest/binary>> = write(16#48, 16#0d, 16#12),
+    {ok, <<72,13,18,
+	   Year, Month, Day,
+	   HighPoint:16/little,
+	   Ascent:32/little,
+	   Descent:32/little,
+	   _Rest/binary>>} = write(16#48, 16#0d, 16#12),
     [{date, Year, Month, Day},{highpoint, HighPoint},{ascent, Ascent}, {descent, Descent}];
 get(hiking_logs) ->
     write(16#b4, 16#0f, 16#14);
@@ -33,8 +33,7 @@ get(hiking_log1) ->
 
 %% [5, 0, 3, AddrLoByte, AddrHiByte, Len, CheckSum (AddrLoByte^AddrHiByte^Len) ]
 write(AddrLo, AddrHi, Len) ->
-    {ok, Reply} = write(<<5, 0, 3, AddrLo, AddrHi, Len, (AddrLo bxor AddrHi bxor Len)>>),
-    bin_to_hexstr(Reply).
+    write(<<5, 0, 3, AddrLo, AddrHi, Len, (AddrLo bxor AddrHi bxor Len)>>).
 
 write(X) ->
     io:format("writing command: ~p~n", [X]),
@@ -71,7 +70,7 @@ init(ExtPrg, Device) ->
     register(complex, self()),
     process_flag(trap_exit, true),
     Port = open_port({spawn_executable, ExtPrg}, [{packet, 2}, {args, [Device]}, binary]),
-    loop(Port).
+    suunto:loop(Port).
 
 loop(Port) ->
     receive
@@ -95,5 +94,5 @@ loop(Port) ->
 
 
 bin_to_hexstr(Bin) ->
-  lists:flatten([io_lib:format("~2.16.0B ", [X]) ||
-    X <- binary_to_list(Bin)]).
+   lists:flatten([io_lib:format("~2.16.0B ", [X]) ||
+     X <- binary_to_list(Bin)]).
