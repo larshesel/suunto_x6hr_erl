@@ -28,7 +28,8 @@ get(hiking_logs) ->
 get(chrono_logs) ->
     write(16#c9, 16#19, 16#19);
 get(hiking_log1) ->
-    parse(write(16#c8, 16#0f, 16#30)).
+    {ok, Data} = write(16#c8, 16#0f, 16#30),
+    parse(Data).
 
 parse(<<200, 15, 48, 
 	_WhatIsthis:8,
