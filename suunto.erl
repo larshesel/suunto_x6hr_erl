@@ -1,6 +1,6 @@
 -module(suunto).
 -export([start/1, stop/0, init/2]).
--export([start/0, write/1, write/3, get/1, loop/1, parse/1]).
+-export([start/0, write/1, get/1, loop/1, parse/1]).
 -export([verify_check_sum/1]).
 
 start() ->
@@ -21,14 +21,14 @@ get(hist) ->
 	   HighPoint:16/little,
 	   Ascent:32/little,
 	   Descent:32/little,
-	   _Rest/binary>>} = write(16#48, 16#0d, 16#12),
+	   _Rest/binary>>} = write(16#0d48, 16#12),
     [{date, Year, Month, Day},{highpoint, HighPoint},{ascent, Ascent}, {descent, Descent}];
 get(hiking_logs) ->
-    write(16#b4, 16#0f, 16#14);
+    write(16#0fb4, 16#14);
 get(chrono_logs) ->
-    write(16#c9, 16#19, 16#19);
+    write(16#19c9, 16#19);
 get(hiking_log1) ->
-    {ok, Data} = write(16#c8, 16#0f, 16#30),
+    {ok, Data} = write(16#0fc8, 16#30),
     parse(Data).
 
 parse(<<200, 15, 48, 
@@ -69,8 +69,9 @@ parse_timestamp(<<Month:8, Day:8, Hour:8, Min:8>>) ->
     [{month, Month}, {day, Day}, {hour, Hour}, {min, Min}].
 
 %% [5, 0, 3, AddrLoByte, AddrHiByte, Len, CheckSum (AddrLoByte^AddrHiByte^Len) ]
-write(AddrLo, AddrHi, Len) ->
-    write(<<5, 0, 3, AddrLo, AddrHi, Len, (AddrLo bxor AddrHi bxor Len)>>).
+write(Addr, Len) ->
+    <<Hi:8, Lo:8>> = <<Addr:16>>,
+    write(<<5, 0, 3, Lo, Hi, Len, (Lo bxor Hi bxor Len)>>).
 
 write(X) ->
     io:format("writing command: ~p~n", [X]),
@@ -130,6 +131,6 @@ loop(Port) ->
     end.
 
 
-bin_to_hexstr(Bin) ->
-   lists:flatten([io_lib:format("~2.16.0B ", [X]) ||
-     X <- binary_to_list(Bin)]).
+%% bin_to_hexstr(Bin) ->
+%%    lists:flatten([io_lib:format("~2.16.0B ", [X]) ||
+%%      X <- binary_to_list(Bin)]).
