@@ -1,13 +1,16 @@
 -module(suunto).
--export([start/1, stop/0, init/1]).
+-export([start/1, stop/0, init/2]).
 -export([start/0, write/1, write/3, get/1]).
 -export([verify_check_sum/1]).
 
 start() ->
-    start("./suunto_port").
+    start("/dev/ttyUSB1").
 
-start(ExtPrg) ->
-    spawn(?MODULE, init, [ExtPrg]).
+start(Device) ->
+    start("./suunto_port", Device).
+
+start(ExtPrg, Device) ->
+    spawn(?MODULE, init, [ExtPrg, Device]).
 
 stop() ->
     complex ! stop.
@@ -23,12 +26,15 @@ get(hist) ->
 get(hiking_logs) ->
     write(16#b4, 16#0f, 16#14);
 get(chrono_logs) ->
-    write(16#c9, 16#19, 16#19).
+    write(16#c9, 16#19, 16#19);
+get(hiking_log1) ->
+    write(16#c8, 16#0f, 16#30).
 
 
 %% [5, 0, 3, AddrLoByte, AddrHiByte, Len, CheckSum (AddrLoByte^AddrHiByte^Len) ]
 write(AddrLo, AddrHi, Len) ->
-    write(<<5, 0, 3, AddrLo, AddrHi, Len, (AddrLo bxor AddrHi bxor Len)>>).
+    {ok, Reply} = write(<<5, 0, 3, AddrLo, AddrHi, Len, (AddrLo bxor AddrHi bxor Len)>>),
+    bin_to_hexstr(Reply).
 
 write(X) ->
     io:format("writing command: ~p~n", [X]),
@@ -61,10 +67,10 @@ call_port({write, Msg}) ->
 	    Result
     end.
 
-init(ExtPrg) ->
+init(ExtPrg, Device) ->
     register(complex, self()),
     process_flag(trap_exit, true),
-    Port = open_port({spawn, ExtPrg}, [{packet, 2}, binary]),
+    Port = open_port({spawn_executable, ExtPrg}, [{packet, 2}, {args, [Device]}, binary]),
     loop(Port).
 
 loop(Port) ->
@@ -82,7 +88,12 @@ loop(Port) ->
 		{Port, closed} ->
 		    exit(normal)
 	    end;
-	{'EXIT', _Port, _Reason} ->
-	    io:format("port terminated\n", []),
+	{'EXIT', _Port, Reason} ->
+	    io:format("port terminated, reason: ~p\n", [Reason]),
 	    exit(port_terminated)
     end.
+
+
+bin_to_hexstr(Bin) ->
+  lists:flatten([io_lib:format("~2.16.0B ", [X]) ||
+    X <- binary_to_list(Bin)]).

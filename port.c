@@ -1,5 +1,3 @@
-
-/* port.c */
 #include <stdio.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -31,10 +29,14 @@ int read_from_suunto(int fd, byte* buf) {
 }
 
 
-int main() {
+int main(int argc, char **argv) {
   struct termios termOptions;
 
-  const char* suunto_dev_name = "/dev/ttyUSB1";
+  if (argc != 2) {
+    logger("No device specified, exiting...\n");
+  }
+  const char* suunto_dev_name = argv[1];
+
   int fd = open(suunto_dev_name, O_RDWR);
   if (fd == -1) {
     logger("open suunto device failed.\n");
@@ -59,7 +61,7 @@ int main() {
   int len = read_cmd(buf);
   while (len > 0) {
     write_to_suunto(fd, buf, len);
-    usleep(100*1000); // wait 100 milliseconds for the watch to write answer
+    usleep(200*1000); // wait 200 milliseconds for the watch to write answer
     len = read_from_suunto(fd, buf);
     logger("writing back to erlang %d bytes\n", len);
     write_cmd(buf, len);
