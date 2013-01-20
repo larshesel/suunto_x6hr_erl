@@ -13,7 +13,7 @@ start(ExtPrg, Device) ->
     spawn(?MODULE, init, [ExtPrg, Device]).
 
 stop() ->
-    complex ! stop.
+    suunto_port ! stop.
 
 get(hist) ->
     {ok, <<72,13,18,
@@ -91,18 +91,21 @@ calc_sum(<<>>, CheckSum, CheckSum) ->
     ok.
 
 call_port({write, Msg}) ->
-    complex ! {call, self(), Msg},
+    suunto_port ! {call, self(), Msg},
     receive
 	{response, Result} ->
 	    io:format("got response: ~p~n", [Result]),
 	    Result
+    after 3000 ->
+	    exit(port_hung)
     end.
 
 init(ExtPrg, Device) ->
-    register(complex, self()),
+    register(suunto_port, self()),
     process_flag(trap_exit, true),
     Port = open_port({spawn_executable, ExtPrg}, [{packet, 2}, {args, [Device]}, binary]),
     suunto:loop(Port).
+
 
 loop(Port) ->
     receive
