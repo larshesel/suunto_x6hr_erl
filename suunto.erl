@@ -1,6 +1,6 @@
 -module(suunto).
 -export([start/1, stop/0, init/2]).
--export([start/0, write/1, get/1, loop/1, parse/1]).
+-export([start/0, read_addr/1, get/1, loop/1, parse/1]).
 -export([verify_check_sum/1]).
 
 start() ->
@@ -21,14 +21,14 @@ get(hist) ->
 	   HighPoint:16/little,
 	   Ascent:32/little,
 	   Descent:32/little,
-	   _Rest/binary>>} = write(16#0d48, 16#12),
+	   _Rest/binary>>} = read_addr(16#0d48, 16#12),
     [{date, Year, Month, Day},{highpoint, HighPoint},{ascent, Ascent}, {descent, Descent}];
 get(hiking_logs) ->
-    write(16#0fb4, 16#14);
+    read_addr(16#0fb4, 16#14);
 get(chrono_logs) ->
-    write(16#19c9, 16#19);
+    read_addr(16#19c9, 16#19);
 get(hiking_log1) ->
-    {ok, Data} = write(16#0fc8, 16#30),
+    {ok, Data} = read_addr(16#0fc8, 16#30),
     parse(Data).
 
 parse(<<200, 15, 48, 
@@ -62,18 +62,17 @@ parse(<<200, 15, 48,
       {lowest_time, parse_timestamp(LowestTimeRaw)},
       {lowest_point_altitude, LowestPointAlt}].
 
-
 parse_timestamp(<<Year:8, RestDate:4/binary>>) ->
     [{year, Year} |  parse_timestamp(RestDate)];
 parse_timestamp(<<Month:8, Day:8, Hour:8, Min:8>>) ->
     [{month, Month}, {day, Day}, {hour, Hour}, {min, Min}].
 
 %% [5, 0, 3, AddrLoByte, AddrHiByte, Len, CheckSum (AddrLoByte^AddrHiByte^Len) ]
-write(Addr, Len) ->
+read_addr(Addr, Len) ->
     <<Hi:8, Lo:8>> = <<Addr:16>>,
-    write(<<5, 0, 3, Lo, Hi, Len, (Lo bxor Hi bxor Len)>>).
+    read_addr(<<5, 0, 3, Lo, Hi, Len, (Lo bxor Hi bxor Len)>>).
 
-write(X) ->
+read_addr(X) ->
     io:format("writing command: ~p~n", [X]),
     verify_check_sum(call_port({write, X})).
 
@@ -86,15 +85,10 @@ verify_check_sum(<<_Pre:3/binary, Rest/binary>>) ->
 	_ -> {error, checksum_not_correct}
     end.
 
-
 calc_sum(<<H:8, T/binary>>, Acc, CheckSum) ->
     calc_sum(T, Acc bxor H, CheckSum);
 calc_sum(<<>>, CheckSum, CheckSum) ->
     ok.
-
-
-
-
 
 call_port({write, Msg}) ->
     complex ! {call, self(), Msg},
@@ -129,7 +123,6 @@ loop(Port) ->
 	    io:format("port terminated, reason: ~p\n", [Reason]),
 	    exit(port_terminated)
     end.
-
 
 %% bin_to_hexstr(Bin) ->
 %%    lists:flatten([io_lib:format("~2.16.0B ", [X]) ||
