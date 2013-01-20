@@ -1,7 +1,7 @@
 -module(suunto).
 -export([start/1, stop/0, init/2]).
--export([start/0, read_addr/1, get/1, loop/1, parse/1]).
--export([verify_check_sum/1]).
+-export([start/0, read_addr/1, read/1, loop/1, parse/1]).
+-export([verify_check_sum/1, get/1]).
 
 start() ->
     start("/dev/ttyUSB1").
@@ -22,19 +22,23 @@ stop() ->
 -define(HIKING_LOG_ENTRY_OFFSET,  16#80).
 -define(HIKING_LOG_ADDR,        16#0fb4).
 
-%% chrono response
-%% <<5,0,28,201,25,25,2,3,4,5,6,7,8,9,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-%%                 0,0,200>>
-get(hist) ->
-    read_addr(?HIST_ADDR, 16#12);
-get(hiking_logs) ->
-    read_addr(?HIKING_LOGS_ADDR, 16#14);
-get(chrono_logs) ->
-    read_addr(?CHRONO_LOGS_ADDR, 16#19);
-get(hiking_log1) ->
-    {ok, Data} = read_addr(?HIKING_LOG_BASE_ADDR, 16#30),
-    parse(Data).
+get(What) ->
+    {ok, RawData} = read(What),
+    {ok, parse(RawData)}.
 
+read(hist) ->
+    read_addr(?HIST_ADDR, 16#12);
+read(hiking_logs) ->
+    read_addr(?HIKING_LOGS_ADDR, 16#14);
+read(chrono_logs) ->
+    read_addr(?CHRONO_LOGS_ADDR, 16#19);
+read(hiking_log1) ->
+    read_addr(?HIKING_LOG_BASE_ADDR, 16#30).
+
+parse(<<?HIKING_LOGS_ADDR:16/little, 
+	PayLoadLen, 
+	IdxData:PayLoadLen/binary>>) ->
+    IdxData;
 parse(<<?HIST_ADDR:16/little,18,
 	Year, Month, Day,
 	HighPoint:16/little,
@@ -42,7 +46,9 @@ parse(<<?HIST_ADDR:16/little,18,
 	Descent:32/little,
 	_Rest/binary>>) ->
     [{date, Year, Month, Day},{highpoint, HighPoint},{ascent, Ascent}, {descent, Descent}];
-parse(<<?CHRONO_LOGS_ADDR:16/little, PayLoadLen, IdxData:PayLoadLen/binary>>) ->
+parse(<<?CHRONO_LOGS_ADDR:16/little, 
+	PayLoadLen, 
+	IdxData:PayLoadLen/binary>>) ->
     IdxData;
 parse(<<?HIKING_LOG_BASE_ADDR:16/little, 48, 
 	_WhatIsthis:8,
