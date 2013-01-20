@@ -15,23 +15,36 @@ start(ExtPrg, Device) ->
 stop() ->
     suunto_port ! stop.
 
+-define(HIST_ADDR,              16#0d48).
+-define(HIKING_LOGS_ADDR,       16#0fb4).
+-define(CHRONO_LOGS_ADDR,       16#19c9).
+-define(HIKING_LOG_BASE_ADDR,   16#0fc8).
+-define(HIKING_LOG_ENTRY_OFFSET,  16#80).
+-define(HIKING_LOG_ADDR,        16#0fb4).
+
+%% chrono response
+%% <<5,0,28,201,25,25,2,3,4,5,6,7,8,9,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+%%                 0,0,200>>
 get(hist) ->
-    {ok, <<72,13,18,
-	   Year, Month, Day,
-	   HighPoint:16/little,
-	   Ascent:32/little,
-	   Descent:32/little,
-	   _Rest/binary>>} = read_addr(16#0d48, 16#12),
-    [{date, Year, Month, Day},{highpoint, HighPoint},{ascent, Ascent}, {descent, Descent}];
+    read_addr(?HIST_ADDR, 16#12);
 get(hiking_logs) ->
-    read_addr(16#0fb4, 16#14);
+    read_addr(?HIKING_LOGS_ADDR, 16#14);
 get(chrono_logs) ->
-    read_addr(16#19c9, 16#19);
+    read_addr(?CHRONO_LOGS_ADDR, 16#19);
 get(hiking_log1) ->
-    {ok, Data} = read_addr(16#0fc8, 16#30),
+    {ok, Data} = read_addr(?HIKING_LOG_BASE_ADDR, 16#30),
     parse(Data).
 
-parse(<<200, 15, 48, 
+parse(<<?HIST_ADDR:16/little,18,
+	Year, Month, Day,
+	HighPoint:16/little,
+	Ascent:32/little,
+	Descent:32/little,
+	_Rest/binary>>) ->
+    [{date, Year, Month, Day},{highpoint, HighPoint},{ascent, Ascent}, {descent, Descent}];
+parse(<<?CHRONO_LOGS_ADDR:16/little, PayLoadLen, IdxData:PayLoadLen/binary>>) ->
+    IdxData;
+parse(<<?HIKING_LOG_BASE_ADDR:16/little, 48, 
 	_WhatIsthis:8,
 	StartRaw:5/binary, %% 12,10,1,17,33
 	Interval:8, %% 10
@@ -76,6 +89,7 @@ read_addr(X) ->
     io:format("writing command: ~p~n", [X]),
     verify_check_sum(call_port({write, X})).
 
+%% this verifies AND returns only the data part. BAD!
 verify_check_sum(<<_Pre:3/binary, Rest/binary>>) ->
     DataSize =  byte_size(Rest) - 1,
     <<Data:DataSize/binary, CheckSum:8>> = Rest,
