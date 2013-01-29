@@ -1,56 +1,66 @@
 -module(suunto).
 -export([start/1, stop/0, init/2]).
--export([start/0, read_addr/1, read/1, loop/1, parse/1]).
--export([verify_check_sum/1, get/1]).
-
-start() ->
-    start("/dev/ttyUSB1").
-
-start(Device) ->
-    start("./suunto_port", Device).
-
-start(ExtPrg, Device) ->
-    spawn(?MODULE, init, [ExtPrg, Device]).
-
-stop() ->
-    suunto_port ! stop.
+-export([start/0, loop/1]).
+-export([get/1, get/2, code_switch/0]).
 
 -define(HIST_ADDR,              16#0d48).
 -define(HIKING_LOGS_ADDR,       16#0fb4).
 -define(CHRONO_LOGS_ADDR,       16#19c9).
+-define(CHRONO_LOG_BASE_ADDR,   16#19fa).
+-define(CHRONO_LOG_ENTRY_OFFSET,  16#32).
 -define(HIKING_LOG_BASE_ADDR,   16#0fc8).
 -define(HIKING_LOG_ENTRY_OFFSET,  16#80).
 -define(HIKING_LOG_ADDR,        16#0fb4).
 
+get(hiking_log, No) when (0 =< No) and (No < 20) ->
+    {ok, LogIdxs} = suunto:get(hiking_logs),
+    case binary:at(LogIdxs, No) of 
+	0 -> 
+	    no_log;
+	LogIdx -> 
+	    {ok, Data} = read_addr(?HIKING_LOG_BASE_ADDR + LogIdx * ?HIKING_LOG_ENTRY_OFFSET, 16#30),
+	    {ok, parse(hiking_log, Data)}
+    end;
+get(chrono_log, No) when (0 =< No) and (No < 20) ->
+    {ok, LogIdxs} = suunto:get(chrono_logs),
+    case binary:at(LogIdxs, No) of 
+	0 -> 
+	    no_log;
+	LogIdx -> 
+	    io:format("Asking for LogIdx: ~p~n", [LogIdx]),
+	    {ok, Data} = read_addr(?CHRONO_LOG_BASE_ADDR + (LogIdx-1) * ?CHRONO_LOG_ENTRY_OFFSET, 16#32),
+	    {ok, parse(chrono_log, Data)}
+    end.
+
 get(What) ->
     {ok, RawData} = read(What),
-    {ok, parse(RawData)}.
+    {ok, parse(What, RawData)}.
 
 read(hist) ->
     read_addr(?HIST_ADDR, 16#12);
 read(hiking_logs) ->
     read_addr(?HIKING_LOGS_ADDR, 16#14);
 read(chrono_logs) ->
-    read_addr(?CHRONO_LOGS_ADDR, 16#19);
-read(hiking_log1) ->
-    read_addr(?HIKING_LOG_BASE_ADDR, 16#30).
+    read_addr(?CHRONO_LOGS_ADDR, 16#19).
 
-parse(<<?HIKING_LOGS_ADDR:16/little, 
+parse(hiking_logs, <<?HIKING_LOGS_ADDR:16/little, 
 	PayLoadLen, 
 	IdxData:PayLoadLen/binary>>) ->
     IdxData;
-parse(<<?HIST_ADDR:16/little,18,
+parse(chrono_log, <<_TwoFirstBytes:2/binary, PayLoadLen, Rest:PayLoadLen/binary>>) ->
+    parse_chrono_log(Rest);
+parse(hist, <<?HIST_ADDR:16/little,18,
 	Year, Month, Day,
 	HighPoint:16/little,
 	Ascent:32/little,
 	Descent:32/little,
 	_Rest/binary>>) ->
     [{date, Year, Month, Day},{highpoint, HighPoint},{ascent, Ascent}, {descent, Descent}];
-parse(<<?CHRONO_LOGS_ADDR:16/little, 
+parse(chrono_logs, <<?CHRONO_LOGS_ADDR:16/little, 
 	PayLoadLen, 
 	IdxData:PayLoadLen/binary>>) ->
     IdxData;
-parse(<<?HIKING_LOG_BASE_ADDR:16/little, 48, 
+parse(hiking_log, <<_:16, 48, 
 	_WhatIsthis:8,
 	StartRaw:5/binary, %% 12,10,1,17,33
 	Interval:8, %% 10
@@ -81,6 +91,53 @@ parse(<<?HIKING_LOG_BASE_ADDR:16/little, 48,
       {lowest_time, parse_timestamp(LowestTimeRaw)},
       {lowest_point_altitude, LowestPointAlt}].
 
+parse_chrono_log(<<FirstChunk:8,
+		   Date:5/binary,
+		   Interval:8,
+		   HrExist:8,
+		   TotalAscent:16/big,
+		   TotalDescent:16/big,
+		   _Skip1:8,
+		   Laps:8,
+		   Duration:4/binary,
+		   InterUp:16/big,
+		   InterDown:16/big,
+		   HighestAlt:16/big,
+		   HighestTime:4/binary,
+		   LowestAlt:16/big,
+		   LowestTime:4/binary,
+		   _skip1:8,
+		   HrMin:8,
+		   HrMax:8,
+		   HrAvg:8,
+		   HrLimitHigh:8,
+		   HrLimitLow:8,
+		   HrOverLimit:16/big,
+		   HrInLimit:16/big,
+		   HrUnderLimit:16/big, _Rest/binary>>) ->
+    [{first_chunk, FirstChunk}, 
+     {date, parse_timestamp(Date)},
+     {interval, Interval}, 
+     {hr_exist, HrExist}, 
+     {total_ascent, TotalAscent}, 
+     {total_descent, TotalDescent}, 
+     {laps, Laps}, 
+     {duration, Duration},
+     {inter_up, InterUp}, 
+     {inter_down, InterDown},
+     {highest_alt, HighestAlt},
+     {highest_time, parse_timestamp(HighestTime)},
+     {lowest_alt, LowestAlt},
+     {lowest_time, parse_timestamp(LowestTime)},
+     {hr_min, HrMin},
+     {hr_max, HrMax},
+     {hr_avg, HrAvg},
+     {hr_limit_high, HrLimitHigh},
+     {hr_limit_low, HrLimitLow},
+     {hr_over_limit, HrOverLimit},
+     {hr_in_limit, HrInLimit},
+     {hr_under_limit, HrUnderLimit}].
+
 parse_timestamp(<<Year:8, RestDate:4/binary>>) ->
     [{year, Year} |  parse_timestamp(RestDate)];
 parse_timestamp(<<Month:8, Day:8, Hour:8, Min:8>>) ->
@@ -95,6 +152,8 @@ read_addr(X) ->
     io:format("writing command: ~p~n", [X]),
     verify_check_sum(call_port({write, X})).
 
+
+%%%%%%%%%%%%%%%%%%%%%% checksum %%%%%%%%%%%%%%%%%%%%%%%%%%
 %% this verifies AND returns only the data part. BAD!
 verify_check_sum(<<_Pre:3/binary, Rest/binary>>) ->
     DataSize =  byte_size(Rest) - 1,
@@ -109,6 +168,22 @@ calc_sum(<<H:8, T/binary>>, Acc, CheckSum) ->
     calc_sum(T, Acc bxor H, CheckSum);
 calc_sum(<<>>, CheckSum, CheckSum) ->
     ok.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%% port stuff %%%%%%%%%%%%%%%%%%%%%%%%%%
+
+start() ->
+    start("/dev/ttyUSB0").
+
+start(Device) ->
+    start("./suunto_port", Device).
+
+start(ExtPrg, Device) ->
+    spawn(?MODULE, init, [ExtPrg, Device]).
+
+stop() ->
+    suunto_port ! stop.
+
 
 call_port({write, Msg}) ->
     suunto_port ! {call, self(), Msg},
@@ -126,16 +201,20 @@ init(ExtPrg, Device) ->
     Port = open_port({spawn_executable, ExtPrg}, [{packet, 2}, {args, [Device]}, binary]),
     suunto:loop(Port).
 
+code_switch() ->
+    suunto_port ! code_switch.
 
 loop(Port) ->
     receive
+	code_switch ->
+	    suunto:loop(Port);
 	{call, Caller, Msg} ->
 	    Port ! {self(), {command, Msg}},
 	    receive
 		{Port, {data, Data}} ->
 		    Caller ! {response, Data}
 	    end,
-	    loop(Port);
+	    suunto:loop(Port);
 	stop ->
 	    Port ! {self(), close},
 	    receive
