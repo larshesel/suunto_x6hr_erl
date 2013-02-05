@@ -137,7 +137,7 @@ parse_chrono_log(<<FirstChunk:8,
      {hr_over_limit, HrOverLimit},
      {hr_in_limit, HrInLimit},
      {hr_under_limit, HrUnderLimit},
-     {graph_data, get_chrono_graph_data(FirstChunk)}].
+     {graph_data, parse_chrono_graph_data(get_chrono_graph_data(FirstChunk), [])}].
 
 get_chrono_graph_data(FirstChunkAddr) ->
     get_chrono_graph_data(<<>>, FirstChunkAddr).
@@ -148,10 +148,21 @@ get_chrono_graph_data(Res, 0) ->
 get_chrono_graph_data(Res, Addr) ->
     BaseAddr = 16#2000 + (Addr -1)*128,
     %% hmm.. maybe we can't read more than 50 bytes?
-    {ok, <<_:3/binary, Data1/binary>>} = read_addr(BaseAddr, 50),
-    {ok, <<_:3/binary, Data2/binary>>} = read_addr(BaseAddr + 50, 50),
+    {ok, <<_:3/binary, _:1/binary, Data1:49/binary>>} = read_addr(BaseAddr, 50),
+    {ok, <<_:3/binary, Data2:50/binary>>} = read_addr(BaseAddr + 50, 50),
     {ok, <<_:3/binary, Data3:27/binary, Next:8>>} = read_addr(BaseAddr + 100, 28),
     get_chrono_graph_data(<<Res/binary, Data1/binary, Data2/binary, Data3/binary>>, Next).
+
+parse_chrono_graph_data(<<130, _Skip:10/binary, Rest/binary>>, ResList) ->
+    parse_chrono_graph_data(Rest, ResList);
+parse_chrono_graph_data(<<128, _Rest/binary>>, ResList) ->
+    lists:reverse(ResList);
+parse_chrono_graph_data(<<B1:16/big, B2:8, Rest/binary>>, ResList) ->
+    parse_chrono_graph_data(Rest, [{B1, B2} |ResList]).
+
+
+    
+    
 
 parse_timestamp(<<Year:8, RestDate:4/binary>>) ->
     [{year, Year} |  parse_timestamp(RestDate)];
