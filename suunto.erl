@@ -136,7 +136,22 @@ parse_chrono_log(<<FirstChunk:8,
      {hr_limit_low, HrLimitLow},
      {hr_over_limit, HrOverLimit},
      {hr_in_limit, HrInLimit},
-     {hr_under_limit, HrUnderLimit}].
+     {hr_under_limit, HrUnderLimit},
+     {graph_data, get_chrono_graph_data(FirstChunk)}].
+
+get_chrono_graph_data(FirstChunkAddr) ->
+    get_chrono_graph_data(<<>>, FirstChunkAddr).
+
+get_chrono_graph_data(Res, 0) ->
+    io:format("graph_data: ~p~n", [Res]),
+    Res;
+get_chrono_graph_data(Res, Addr) ->
+    BaseAddr = 16#2000 + (Addr -1)*128,
+    %% hmm.. maybe we can't read more than 50 bytes?
+    {ok, <<_:3/binary, Data1/binary>>} = read_addr(BaseAddr, 50),
+    {ok, <<_:3/binary, Data2/binary>>} = read_addr(BaseAddr + 50, 50),
+    {ok, <<_:3/binary, Data3:27/binary, Next:8>>} = read_addr(BaseAddr + 100, 28),
+    get_chrono_graph_data(<<Res/binary, Data1/binary, Data2/binary, Data3/binary>>, Next).
 
 parse_timestamp(<<Year:8, RestDate:4/binary>>) ->
     [{year, Year} |  parse_timestamp(RestDate)];
